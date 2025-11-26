@@ -1,0 +1,320 @@
+import React, { useState, useMemo } from "react";
+
+/**
+ * Marketing Budget Calculator
+ * Single-file React component (Tailwind CSS)
+ * - Default export a React component
+ * - Interactive inputs for child care centers
+ * - Preset channel allocations and editable custom splits
+ * - Monthly & annual budget, cost-per-lead, projected leads, ROI preview
+ *
+ * Usage: place this component in any React app that has Tailwind available.
+ * Styling notes: uses Tailwind utility classes to keep file self-contained.
+ */
+
+const CHANNELS = [
+  "Paid Search",
+  "Social Ads",
+  "Organic Social",
+  "Local SEO",
+  "Referral / Partnerships",
+  "Events / Open Houses",
+  "Content / Email",
+  "Flyers & Local Collateral",
+];
+
+const PRESETS = {
+  Conservative: {
+    description: "Lower spend, focus on organic and local presence",
+    split: {
+      "Paid Search": 10,
+      "Social Ads": 10,
+      "Organic Social": 20,
+      "Local SEO": 25,
+      "Referral / Partnerships": 10,
+      "Events / Open Houses": 10,
+      "Content / Email": 10,
+      "Flyers & Local Collateral": 5,
+    },
+  },
+  Balanced: {
+    description: "Balanced mix for steady growth",
+    split: {
+      "Paid Search": 20,
+      "Social Ads": 20,
+      "Organic Social": 15,
+      "Local SEO": 15,
+      "Referral / Partnerships": 10,
+      "Events / Open Houses": 5,
+      "Content / Email": 10,
+      "Flyers & Local Collateral": 5,
+    },
+  },
+  Aggressive: {
+    description: "Higher paid acquisition to grow fast",
+    split: {
+      "Paid Search": 30,
+      "Social Ads": 30,
+      "Organic Social": 10,
+      "Local SEO": 10,
+      "Referral / Partnerships": 5,
+      "Events / Open Houses": 5,
+      "Content / Email": 5,
+      "Flyers & Local Collateral": 5,
+    },
+  },
+};
+
+export default function MarketingBudgetCalculator() {
+  // Core inputs
+  const [enrolled, setEnrolled] = useState(48);
+  const [monthlyTuition, setMonthlyTuition] = useState(900);
+  const [desiredPct, setDesiredPct] = useState(6); // percent of revenue
+  const [otherMonthlyCosts, setOtherMonthlyCosts] = useState(0);
+
+  // Conversion assumptions (editable)
+  const [leadToTourPct, setLeadToTourPct] = useState(25); // % of leads who book a tour
+  const [tourToEnrollPct, setTourToEnrollPct] = useState(15); // % of tours who enroll
+  const [avgCustomerLifetimeMonths, setAvgCustomerLifetimeMonths] = useState(36);
+
+  // Channel allocation state (percent per channel)
+  const [channelAllocation, setChannelAllocation] = useState(() => PRESETS.Balanced.split);
+  const [preset, setPreset] = useState("Balanced");
+
+  // Estimated cost-per-lead by channel (defaults — user can edit later)
+  const [cplByChannel, setCplByChannel] = useState({
+    "Paid Search": 40,
+    "Social Ads": 35,
+    "Organic Social": 5,
+    "Local SEO": 12,
+    "Referral / Partnerships": 15,
+    "Events / Open Houses": 20,
+    "Content / Email": 6,
+    "Flyers & Local Collateral": 8,
+  });
+
+  // Derived values
+  const monthlyRevenue = useMemo(() => enrolled * monthlyTuition, [enrolled, monthlyTuition]);
+  const monthlyBudget = useMemo(() => Math.max(0, Math.round((desiredPct / 100) * monthlyRevenue - otherMonthlyCosts)), [desiredPct, monthlyRevenue, otherMonthlyCosts]);
+  const annualBudget = useMemo(() => monthlyBudget * 12, [monthlyBudget]);
+
+  // Channel dollar allocation
+  const channelDollarAllocation = useMemo(() => {
+    const alloc = {};
+    const totalPct = Object.values(channelAllocation).reduce((s, v) => s + Number(v || 0), 0) || 100;
+    CHANNELS.forEach((ch) => {
+      const pct = (channelAllocation[ch] || 0) / totalPct;
+      alloc[ch] = +(monthlyBudget * pct).toFixed(2);
+    });
+    return alloc;
+  }, [channelAllocation, monthlyBudget]);
+
+  // Projected leads per channel
+  const projectedLeadsByChannel = useMemo(() => {
+    const leads = {};
+    CHANNELS.forEach((ch) => {
+      const dollars = channelDollarAllocation[ch] || 0;
+      const cpl = Math.max(0.01, cplByChannel[ch] || 1);
+      leads[ch] = Math.floor(dollars / cpl);
+    });
+    return leads;
+  }, [channelDollarAllocation, cplByChannel]);
+
+  const totalProjectedLeads = useMemo(() => Object.values(projectedLeadsByChannel).reduce((s, v) => s + v, 0), [projectedLeadsByChannel]);
+
+  // From leads -> tours -> enrollments
+  const projectedTours = Math.floor((totalProjectedLeads * (leadToTourPct / 100)));
+  const projectedEnrolls = Math.floor((projectedTours * (tourToEnrollPct / 100)));
+
+  // Customer value and simple ROI estimate (LTV approximation)
+  const avgMonthlyRevenuePerChild = monthlyTuition;
+  const avgCustomerLTV = avgMonthlyRevenuePerChild * avgCustomerLifetimeMonths;
+  const projectedNewRevenueAnnually = projectedEnrolls * avgMonthlyRevenuePerChild * 12;
+  const estimatedCAC = projectedEnrolls > 0 ? Math.round((monthlyBudget * 12) / projectedEnrolls) : 0;
+  const simpleROI = projectedEnrolls > 0 ? (projectedNewRevenueAnnually - monthlyBudget * 12) / (monthlyBudget * 12) : null;
+
+  // Handlers
+  function applyPreset(p) {
+    setPreset(p);
+    setChannelAllocation({ ...PRESETS[p].split });
+  }
+
+  function updateChannelPct(channel, value) {
+    const v = Number(value);
+    setChannelAllocation((prev) => ({ ...prev, [channel]: isNaN(v) ? 0 : v }));
+  }
+
+  function updateCpl(channel, value) {
+    const v = Number(value);
+    setCplByChannel((prev) => ({ ...prev, [channel]: isNaN(v) ? 0 : v }));
+  }
+
+  // CSV export helper
+  function downloadCSV() {
+    const rows = [
+      ["Metric", "Value"],
+      ["Enrolled Children", enrolled],
+      ["Monthly Tuition", monthlyTuition],
+      ["Monthly Revenue", monthlyRevenue],
+      ["Desired % for Marketing", desiredPct + "%"],
+      ["Monthly Marketing Budget", monthlyBudget],
+      ["Annual Marketing Budget", annualBudget],
+      ["Projected Total Leads / Month", totalProjectedLeads],
+      ["Projected Tours / Month", projectedTours],
+      ["Projected New Enrollments / Month", projectedEnrolls],
+      ["Estimated CAC", estimatedCAC],
+      ["Projected New Revenue (annual)", projectedNewRevenueAnnually],
+      [],
+      ["Channel", "Pct", "Allocated $/mo", "Est. CPL", "Est. Leads / mo"],
+      ...CHANNELS.map((ch) => [ch, (channelAllocation[ch] || 0) + "%", channelDollarAllocation[ch].toFixed(2), (cplByChannel[ch] || ""), projectedLeadsByChannel[ch]]),
+    ];
+
+    const csv = rows.map((r) => r.map(String).map((c) => '"' + c.replace(/"/g, '""') + '"').join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "marketing-budget-childcare.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div className="max-w-5xl mx-auto p-6 bg-white rounded-2xl shadow-md">
+      <header className="mb-6">
+        <h1 className="text-2xl font-semibold">Marketing Budget Calculator</h1>
+        <p className="text-sm text-slate-600 mt-1">Interactive budgeting and channel allocation tool designed for child care & preschool centers.</p>
+      </header>
+
+      <section className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+        <div className="p-4 border rounded-lg">
+          <h2 className="font-medium">Center & Financial Inputs</h2>
+          <div className="space-y-3 mt-4">
+            <label className="flex flex-col text-sm">
+              Enrolled children
+              <input type="number" value={enrolled} onChange={(e) => setEnrolled(Math.max(0, Number(e.target.value || 0)))} className="mt-1 p-2 border rounded" />
+            </label>
+            <label className="flex flex-col text-sm">
+              Average monthly tuition per child ($)
+              <input type="number" value={monthlyTuition} onChange={(e) => setMonthlyTuition(Math.max(0, Number(e.target.value || 0)))} className="mt-1 p-2 border rounded" />
+            </label>
+            <label className="flex flex-col text-sm">
+              Desired marketing spend (% of monthly revenue)
+              <div className="flex items-center gap-3 mt-1">
+                <input type="range" min={0} max={25} value={desiredPct} onChange={(e) => setDesiredPct(Number(e.target.value))} />
+                <div className="w-16 text-right">{desiredPct}%</div>
+              </div>
+            </label>
+            <label className="flex flex-col text-sm">
+              Other monthly marketing-related costs to subtract ($)
+              <input type="number" value={otherMonthlyCosts} onChange={(e) => setOtherMonthlyCosts(Math.max(0, Number(e.target.value || 0)))} className="mt-1 p-2 border rounded" />
+            </label>
+          </div>
+        </div>
+
+        <div className="p-4 border rounded-lg">
+          <h2 className="font-medium">Conversion & Value Assumptions</h2>
+          <div className="space-y-3 mt-4 text-sm">
+            <label className="flex flex-col">
+              % of leads who book a tour
+              <input type="range" min={0} max={100} value={leadToTourPct} onChange={(e) => setLeadToTourPct(Number(e.target.value))} />
+              <div className="text-xs text-slate-500">{leadToTourPct}%</div>
+            </label>
+            <label className="flex flex-col">
+              % of tours that convert to enrollments
+              <input type="range" min={0} max={100} value={tourToEnrollPct} onChange={(e) => setTourToEnrollPct(Number(e.target.value))} />
+              <div className="text-xs text-slate-500">{tourToEnrollPct}%</div>
+            </label>
+            <label className="flex flex-col">
+              Average customer lifetime (months)
+              <input type="number" min={1} value={avgCustomerLifetimeMonths} onChange={(e) => setAvgCustomerLifetimeMonths(Math.max(1, Number(e.target.value || 1)))} className="mt-1 p-2 border rounded" />
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <section className="mb-6 p-4 border rounded-lg">
+        <h2 className="font-medium">Budget Summary</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+          <StatCard label="Monthly Revenue" value={`$${monthlyRevenue.toLocaleString()}`} />
+          <StatCard label="Monthly Marketing Budget" value={`$${monthlyBudget.toLocaleString()}`} />
+          <StatCard label="Annual Marketing Budget" value={`$${annualBudget.toLocaleString()}`} />
+        </div>
+
+        <div className="mt-4">
+          <h3 className="text-sm font-medium">Presets</h3>
+          <div className="flex gap-3 mt-2 flex-wrap">
+            {Object.keys(PRESETS).map((p) => (
+              <button key={p} onClick={() => applyPreset(p)} className={`px-3 py-1 rounded-md border ${preset === p ? "bg-slate-800 text-white" : "bg-white text-slate-700"}`}>
+                {p}
+              </button>
+            ))}
+            <div className="text-xs text-slate-500 mt-1 ml-1">Current: {PRESETS[preset].description}</div>
+          </div>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <div className="p-4 border rounded-lg">
+          <h2 className="font-medium">Channel Allocation (edit %)</h2>
+          <div className="space-y-2 mt-3 text-sm">
+            {CHANNELS.map((ch) => (
+              <div key={ch} className="flex items-center gap-3">
+                <div className="w-40">{ch}</div>
+                <input type="number" value={channelAllocation[ch] ?? 0} onChange={(e) => updateChannelPct(ch, e.target.value)} className="p-1 border rounded w-20" />
+                <div className="flex-1">
+                  <div className="text-xs text-slate-500">Allocated $/mo: ${((channelDollarAllocation[ch] || 0)).toFixed(0)}</div>
+                </div>
+                <div className="w-28 text-right">
+                  <input type="number" value={cplByChannel[ch]} onChange={(e) => updateCpl(ch, e.target.value)} className="p-1 border rounded w-full" />
+                  <div className="text-xs text-slate-400">Est CPL</div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="text-xs text-slate-500 mt-3">Tip: totals don't have to be 100% — they will be normalized to calculate allocations.</div>
+        </div>
+
+        <div className="p-4 border rounded-lg">
+          <h2 className="font-medium">Projected Outcomes</h2>
+          <div className="mt-3 space-y-3 text-sm">
+            <div>Total projected leads / month: <strong>{totalProjectedLeads}</strong></div>
+            <div>Projected tours / month: <strong>{projectedTours}</strong></div>
+            <div>Projected new enrollments / month: <strong>{projectedEnrolls}</strong></div>
+            <div>Estimated CAC (cost to acquire one new enrolled child): <strong>${estimatedCAC}</strong></div>
+            <div>Projected new revenue (annual) from these enrollments: <strong>${projectedNewRevenueAnnually.toLocaleString()}</strong></div>
+            <div>Simple annual ROI on marketing (revenue increase vs spend): <strong>{simpleROI === null ? "—" : (simpleROI * 100).toFixed(0) + "%"}</strong></div>
+          </div>
+
+          <div className="mt-4">
+            <h3 className="font-medium">Channel Breakdown (leads / month)</h3>
+            <div className="mt-2 space-y-2 text-sm">
+              {CHANNELS.map((ch) => (
+                <div key={ch} className="flex justify-between">
+                  <div>{ch}</div>
+                  <div>{projectedLeadsByChannel[ch]} leads</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="flex gap-3 justify-end">
+        <button onClick={downloadCSV} className="px-4 py-2 rounded bg-slate-800 text-white">Download CSV</button>
+        <button onClick={() => window.print()} className="px-4 py-2 rounded border">Print summary</button>
+      </section>
+
+      <footer className="mt-6 text-xs text-slate-500">This tool gives estimates only. Adjust assumptions and CPLs to match your local market for best results.</footer>
+    </div>
+  );
+}
+
+function StatCard({ label, value }) {
+  return (
+    <div className="p-3 border rounded-lg">
+      <div className="text-xs text-slate-500">{label}</div>
+      <div className="text-lg font-semibold mt-1">{value}</div>
+    </div>
+  );
+}
